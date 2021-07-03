@@ -1,17 +1,16 @@
 ﻿#include <windows.h>
 #include <stdio.h>
-#include <math.h>
+#include <cmath>
+
 #define ABS(a) ( (a) < 0 ? -(a) : (a) )
 
 typedef unsigned char BYTE;
-
 typedef struct
 {
     BYTE R;
     BYTE G;
     BYTE B;
 }RGB;
-
 typedef struct
 {
     BYTE B;
@@ -19,20 +18,86 @@ typedef struct
     BYTE R;
     BYTE A;
 }RGB4;
-
 typedef struct
 {
-    int x;
-    int y;
+    double x;
+    double y;
     double angle;
 }PLAYER;
-
 typedef struct
 {
     int x;
     int y;
-} DOT_2D;
+}DOT_2D;
 
+// Global vars
+PLAYER player = { 25 ,25, 0 };
+
+DOT_2D* borders = nullptr;
+bool show_borders = true;
+int num_borders = 0;
+
+char keyCode = -1;
+
+double FOV = 1.0472; // Field of view
+int NUM_RAYS = 100;  // Number of casting rays
+int MAX_DEPTH = 300; // Maximum ray depth
+
+// Global funclions
+bool is_outside(int x, int y)
+{
+    for (int i = 0; i < num_borders; i++)
+    {
+        if (x >= borders[i].x && y >= borders[i].y && x <= borders[i].x + 50 && y <= borders[i].y + 50)
+        {
+            return false;
+        }
+    }
+    
+    if (x < 0 || y < 0 || x >= 500 || y >= 500)
+    {
+        return false;
+    
+    }
+    return true;
+}
+void read_map_from_file(const char* fname)
+{
+    FILE* fp;
+
+    fopen_s(&fp, fname, "rt");
+    if (fp)
+    {
+        int i, j;
+        char chr;
+
+        // Count borders and get player position
+        for (i = j = 0; (chr = getc(fp)) != EOF; j++)
+        {
+            if (chr == '#') num_borders++;
+            else if (chr == 'p') player = { (j + 0.5) * 50, (i + 0.5) * 50};
+            else if (chr == '\n') { j = -1; i++; }
+        }
+
+        // Read borders
+        if (num_borders)
+        {
+            borders = new DOT_2D[num_borders];
+            int k = 0;
+
+            rewind(fp);
+
+            for (i = j = 0; (chr = getc(fp)) != EOF; j++)
+            {
+                if (chr == '#' && k < num_borders) borders[k++] = { j * 50, i * 50 };
+                if (chr == '\n') { j = -1; i++; }
+            }
+        }
+    }
+    else printf("%s read error.", fname);
+}
+
+// FRAME class
 class FRAME
 {
 private:
@@ -40,7 +105,6 @@ private:
     HDC hdc = nullptr;
     HDC tmpDc = nullptr;
     HBITMAP hbm = nullptr;
-
 public:
     int width;
     int height;
@@ -58,7 +122,6 @@ public:
         hdc = GetDC(hwnd);
         tmpDc = CreateCompatibleDC(hdc);
     }
-
     ~FRAME()
     {
         delete[] buffer;
@@ -80,7 +143,6 @@ public:
             }
         }
     }
-
     void set_pixel(int x, int y)
     {
         if (x > -1 && y > -1 && x < width && y < height)
@@ -91,26 +153,6 @@ public:
             buffer[i].B = pen_color.B;
         }
     }
-
-    bool cmp_pixel(int x, int y, RGB color)
-    {
-        int i = y * width + x;
-
-        if (buffer[i].R == color.R && buffer[i].G == color.G && buffer[i].B == color.B) return true;
-        else return false;
-    }
-
-    void set_rect(int x1, int y1, int x2, int y2)
-    {
-        for (int y = y1; y <= y2; y++)
-        {
-            for (int x = x1; x <= x2; x++)
-            {
-                set_pixel(x, y);
-            }
-        }
-    }
-
     void set_circle(int x0, int y0, int R)
     {
         for (int x = x0 - R; x < x0 + R; x++)
@@ -121,58 +163,6 @@ public:
             }
         }
     }
-
-    void set_ray(int x1, int y1, int x2, int y2)
-    {
-        int dx = ABS(x2 - x1);
-        int dy = ABS(y2 - y1);
-        int sx = (x2 >= x1) ? 1 : -1;
-        int sy = (y2 >= y1) ? 1 : -1;
-
-        if (dx > dy)
-        {
-            int d = (dy << 1) - dx, d1 = dy << 1, d2 = (dy - dx) << 1;
-
-            for (int x = x1 + sx, y = y1, i = 1; i < dx; i++, x += sx)
-            {
-                if (d > 0)
-                {
-                    d += d2;
-                    y += sy;
-                }
-                else d += d1;
-
-                if (cmp_pixel(x, y, {}))
-                {
-                    return;
-                }
-
-                set_pixel(x, y);
-            }
-        }
-        else
-        {
-            int d = (dx << 1) - dy, d1 = dx << 1, d2 = (dx - dy) << 1;
-
-            for (int x = x1, y = y1 + sy, i = 1; i < dy; i++, y += sy)
-            {
-                if (d > 0)
-                {
-                    d += d2;
-                    x += sx;
-                }
-                else d += d1;
-
-                if (cmp_pixel(x, y, {}))
-                {
-                    return;
-                }
-
-                set_pixel(x, y);
-            }
-        }
-    }
-
     void set_line(int x1, int y1, int x2, int y2)
     {
         int dx = ABS(x2 - x1);
@@ -215,7 +205,6 @@ public:
         set_pixel(x1, y1);
         set_pixel(x2, y2);
     }
-
     void print()
     {
         hbm = CreateBitmap(width, height, 1, 8 * 4, buffer);
@@ -227,53 +216,13 @@ public:
     }
 };
 
-PLAYER player = {};
-DOT_2D* borders;
-int bn = 0, bh = 40;
-char KeyCode = -1;
-
-void read_map_from_file(const char* fname)
-{
-    FILE* fp;
-
-    fopen_s(&fp, fname, "rt");
-    if (fp)
-    {
-        int i, j;
-        char chr;
-
-        // Count borders and get player position
-        for (i = j = 0; (chr = getc(fp)) != EOF; j++)
-        {
-            if (chr == '#') bn++;
-            else if (chr == 'p') player = { j * 1000 + 500, i * 1000 + 500 };
-            else if (chr == '\n') { j = -1; i++; }
-        }
-
-        // Read borders
-        if (bn)
-        {
-            borders = new DOT_2D[bn];
-            int k = 0;
-
-            rewind(fp);
-
-            for (i = j = 0; (chr = getc(fp)) != EOF; j++)
-            {
-                if (chr == '#' && k < bn) borders[k++] = { j * 1000, i * 1000 };
-                if (chr == '\n') { j = -1; i++; }
-            }
-        }
-    }
-}
-
 // Window processing function
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
-    if (uMsg == WM_DESTROY) PostQuitMessage(0);
-    else if (uMsg == WM_KEYDOWN) KeyCode = wParam;
-    else if (uMsg == WM_KEYUP) KeyCode = 0;
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    if (uMessage == WM_DESTROY) PostQuitMessage(0);
+    else if (uMessage == WM_KEYDOWN) keyCode = wParam;
+    else if (uMessage == WM_KEYUP) keyCode = 0;
+    return DefWindowProc(hwnd, uMessage, wParam, lParam);
 }
 
 int main()
@@ -281,7 +230,7 @@ int main()
     // Register the window class
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     WNDCLASS wc = {};
-    const wchar_t CLASS_NAME[] = L"MyWindow";
+    const wchar_t CLASS_NAME[] = L"myWindow";
 
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
@@ -289,21 +238,22 @@ int main()
     RegisterClass(&wc);
 
     // Create the window
-    const int windowWidth = 400;
-    const int windowHeight = 400;
-    HWND hwnd = CreateWindow(CLASS_NAME, L"My Window", WS_OVERLAPPEDWINDOW, 0, 0, windowWidth+16, windowHeight+39, nullptr, nullptr, hInstance, nullptr);
+    const int windowWidth = 500;
+    const int windowHeight = 500;
+    HWND hwnd = CreateWindow(CLASS_NAME, L"Ray Casting 2d", WS_OVERLAPPEDWINDOW, 0, 0, windowWidth + 16, windowHeight + 39, nullptr, nullptr, hInstance, nullptr);
 
     ShowWindow(hwnd, SW_SHOWNORMAL);
     //ShowWindow(GetConsoleWindow(), SW_SHOWNORMAL); // SW_HIDE or SW_SHOWNORMAL - Hide or Show console
     MSG msg = {};
-    
-    /** MAIN LOOP **/
-    FRAME frame(windowWidth, windowHeight, hwnd);
+
+    // Game part
     read_map_from_file("map.txt");
 
-    int dx, dy;
-    bool outside;
-    
+    FRAME frame(windowWidth, windowHeight, hwnd);
+
+    double rx, ry, dx, dy, sin_a, cos_a;
+
+    // -+-+-+-+-+-+-+-+-+-+- MAIL LOOP -+-+-+-+-+-+-+-+-+-+-
     while (GetKeyState(VK_ESCAPE) >= 0)
     {
         // Processing window messages
@@ -313,84 +263,82 @@ int main()
             if (msg.message == WM_QUIT) break;
         }
 
-        // Processing frames after key event
-        if (KeyCode)
+        // Processing key event
+        if (keyCode)
         {
-            // Logic
-            if (KeyCode == 38)
+            if (keyCode == 38)
             {
-                dx = int(80 * cos(player.angle));
-                dy = int(80 * sin(player.angle));
+                dx = 10 * cos(player.angle);
+                dy = 10 * sin(player.angle);
 
-                outside = true;
-                for (int i = 0; i < bn; i++)
+                if (is_outside(player.x + dx, player.y + dy))
                 {
-                    if (player.x + dx > borders[i].x && player.y + dy > borders[i].y && player.x + dx < borders[i].x + 1000 && player.y + dy < borders[i].y + 1000)
-                    {
-                        outside = false;
-                        break;
-                    }
-                }
-
-                if (outside)
-                {
-                    player.x += dx/4;
-                    player.y += dy/4;
+                    player.x += dx / 10;
+                    player.y += dy / 10;
                 }
             }
-            else if (KeyCode == 40)
+            else if (keyCode == 40)
             {
-                dx = int(80 * cos(player.angle));
-                dy = int(80 * sin(player.angle));
+                dx = 10 * cos(player.angle);
+                dy = 10 * sin(player.angle);
 
-                outside = true;
-                for (int i = 0; i < bn; i++)
+                if (is_outside(player.x - dx, player.y - dy))
                 {
-                    if (player.x - dx > borders[i].x && player.y - dy > borders[i].y && player.x - dx < borders[i].x + 1000 && player.y - dy < borders[i].y + 1000)
-                    {
-                        outside = false;
-                        break;
-                    }
-                }
-
-                if (outside)
-                {
-                    player.x -= dx/4;
-                    player.y -= dy/4;
+                    player.x -= dx / 10;
+                    player.y -= dy / 10;
                 }
             }
-            else if (KeyCode == 37)
-            {
-                player.angle -= 0.01;
-            }
-            else if (KeyCode == 39)
-            {
-                player.angle += 0.01;
-            }
+            else if (keyCode == 37) player.angle -= FOV / 100;
+            else if (keyCode == 39) player.angle += FOV / 100;
+            else if (keyCode == 49) show_borders = true;
+            else if (keyCode == 50) show_borders = false;
 
-            // Clear buffer
-            frame.clear();
+            // Draw background
+            frame.clear({ 0,0,0 });
 
             // Set borders
-            frame.pen_color = {};
-            for (int i = 0; i < bn; i++)
+            frame.pen_color = { 200,200,200 };
+
+            if (show_borders)
             {
-                frame.set_rect(borders[i].x / 25, borders[i].y / 25, borders[i].x / 25 + bh, borders[i].y / 25 + bh);
+                for (int i = 0; i < num_borders; i++)
+                {
+                    for (int l = 0; l < 50; l++)
+                    {
+                        frame.set_pixel(borders[i].x + l, borders[i].y);
+                        frame.set_pixel(borders[i].x, borders[i].y + l);
+                        frame.set_pixel(borders[i].x + 50, borders[i].y + l);
+                        frame.set_pixel(borders[i].x + l, borders[i].y + 50);
+                    }
+                }
             }
 
             // Set rays
-            for (double angle = -0.6; angle <= 0.6; angle += 0.01)
+            frame.pen_color = { 200,200,200 };
+
+            for (double angle = -FOV/2; angle <= FOV/2; angle += FOV/NUM_RAYS)
             {
-                frame.pen_color = { 0,255,255 };
-                frame.set_ray(player.x / 25, player.y / 25, player.x / 25 + int(bh * 8 * cos(player.angle + angle)), player.y / 25 + int(bh * 8 * sin(player.angle + angle)));
+                sin_a = sin(player.angle + angle);
+                cos_a = cos(player.angle + angle);
+                    
+                for (int depth = 0; depth < MAX_DEPTH; depth++)
+                {
+                    rx = player.x + cos_a * depth;
+                    ry = player.y + sin_a * depth;
+
+                    if (!is_outside(rx, ry)) break;
+
+                    frame.set_pixel(rx, ry);
+                }
             }
 
-            // Set rlayer
-            frame.pen_color = { 255,0,0 };
-            frame.set_line(player.x / 25, player.y / 25, player.x / 25 + int(bh * 8 * cos(player.angle - 0.6)), player.y / 25 + int(bh * 8 * sin(player.angle - 0.6)));
-            frame.set_line(player.x / 25, player.y / 25, player.x / 25 + int(bh * 8 * cos(player.angle)), player.y / 25 + int(bh * 8 * sin(player.angle)));
-            frame.set_line(player.x / 25, player.y / 25, player.x / 25 + int(bh * 8 * cos(player.angle+0.6)), player.y / 25 + int(bh * 8 * sin(player.angle + 0.6)));
-            frame.set_circle(player.x / 25, player.y / 25, 5);
+            // Set player
+            frame.pen_color = { 0,255,0 };
+
+            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle)), (int)(player.y + MAX_DEPTH * sin(player.angle)));
+            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle - FOV/2)), (int)(player.y + MAX_DEPTH * sin(player.angle - FOV/2)));
+            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle + FOV/2)), (int)(player.y + MAX_DEPTH * sin(player.angle + FOV/2)));
+            frame.set_circle((int)player.x, (int)player.y, 9);
 
             // Print buffer
             frame.print();
