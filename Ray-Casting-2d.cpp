@@ -20,9 +20,9 @@ typedef struct
 }RGB4;
 typedef struct
 {
-    double x;
-    double y;
-    double angle;
+    float x;
+    float y;
+    float angle;
 }PLAYER;
 typedef struct
 {
@@ -39,7 +39,7 @@ int num_borders = 0;
 
 char keyCode = -1;
 
-double FOV = 1.0472; // Field of view
+float FOV = 1.0472;  // Field of view
 int NUM_RAYS = 100;  // Number of casting rays
 int MAX_DEPTH = 300; // Maximum ray depth
 
@@ -53,11 +53,9 @@ bool is_outside(int x, int y)
             return false;
         }
     }
-    
     if (x < 0 || y < 0 || x >= 500 || y >= 500)
     {
         return false;
-    
     }
     return true;
 }
@@ -75,7 +73,11 @@ void read_map_from_file(const char* fname)
         for (i = j = 0; (chr = getc(fp)) != EOF; j++)
         {
             if (chr == '#') num_borders++;
-            else if (chr == 'p') player = { (j + 0.5) * 50, (i + 0.5) * 50};
+            else if (chr == 'p') 
+            {
+                player.x = (j + 0.5) * 50;
+                player.y = (i + 0.5) * 50;
+            }
             else if (chr == '\n') { j = -1; i++; }
         }
 
@@ -251,7 +253,8 @@ int main()
 
     FRAME frame(windowWidth, windowHeight, hwnd);
 
-    double rx, ry, dx, dy, sin_a, cos_a;
+    float dx, dy, sin_a, cos_a;
+    int rx, ry;
 
     // -+-+-+-+-+-+-+-+-+-+- MAIL LOOP -+-+-+-+-+-+-+-+-+-+-
     while (GetKeyState(VK_ESCAPE) >= 0)
@@ -266,8 +269,9 @@ int main()
         // Processing key event
         if (keyCode)
         {
-            if (keyCode == 38)
+            switch (keyCode)
             {
+            case 38:
                 dx = 10 * cos(player.angle);
                 dy = 10 * sin(player.angle);
 
@@ -276,9 +280,8 @@ int main()
                     player.x += dx / 10;
                     player.y += dy / 10;
                 }
-            }
-            else if (keyCode == 40)
-            {
+            break;
+            case 40:
                 dx = 10 * cos(player.angle);
                 dy = 10 * sin(player.angle);
 
@@ -287,17 +290,18 @@ int main()
                     player.x -= dx / 10;
                     player.y -= dy / 10;
                 }
+            break;
+            case 37: player.angle -= FOV / 100; break;
+            case 39: player.angle += FOV / 100; break;
+            case 49: show_borders = true; break;
+            case 50: show_borders = false; break;
             }
-            else if (keyCode == 37) player.angle -= FOV / 100;
-            else if (keyCode == 39) player.angle += FOV / 100;
-            else if (keyCode == 49) show_borders = true;
-            else if (keyCode == 50) show_borders = false;
-
+        
             // Draw background
             frame.clear({ 0,0,0 });
 
-            // Set borders
-            frame.pen_color = { 200,200,200 };
+            // Draw borders
+            frame.pen_color = { 150,150,150 };
 
             if (show_borders)
             {
@@ -313,32 +317,34 @@ int main()
                 }
             }
 
-            // Set rays
-            frame.pen_color = { 200,200,200 };
+            // Cast rays
+            frame.pen_color = { 150,150,150 };
 
-            for (double angle = -FOV/2; angle <= FOV/2; angle += FOV/NUM_RAYS)
+            for (float angle = -FOV/2; angle <= FOV/2; angle += FOV/NUM_RAYS)
             {
                 sin_a = sin(player.angle + angle);
                 cos_a = cos(player.angle + angle);
                     
                 for (int depth = 0; depth < MAX_DEPTH; depth++)
                 {
-                    rx = player.x + cos_a * depth;
-                    ry = player.y + sin_a * depth;
+                    rx = int(player.x + cos_a * depth);
+                    ry = int(player.y + sin_a * depth);
 
-                    if (!is_outside(rx, ry)) break;
-
+                    if (rx % 50 == 0 || ry % 50 == 0)
+                    {
+                        if (!is_outside(rx, ry)) break;
+                    }
                     frame.set_pixel(rx, ry);
                 }
             }
 
-            // Set player
+            // Draw player
             frame.pen_color = { 0,255,0 };
 
-            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle)), (int)(player.y + MAX_DEPTH * sin(player.angle)));
-            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle - FOV/2)), (int)(player.y + MAX_DEPTH * sin(player.angle - FOV/2)));
-            frame.set_line((int)player.x, (int)player.y, (int)(player.x + MAX_DEPTH * cos(player.angle + FOV/2)), (int)(player.y + MAX_DEPTH * sin(player.angle + FOV/2)));
-            frame.set_circle((int)player.x, (int)player.y, 9);
+            frame.set_line(player.x, player.y, player.x + MAX_DEPTH * cos(player.angle), player.y + MAX_DEPTH * sin(player.angle));
+            frame.set_line(player.x, player.y, player.x + MAX_DEPTH * cos(player.angle - FOV/2), player.y + MAX_DEPTH * sin(player.angle - FOV/2));
+            frame.set_line(player.x, player.y, player.x + MAX_DEPTH * cos(player.angle + FOV/2), player.y + MAX_DEPTH * sin(player.angle + FOV/2));
+            frame.set_circle(player.x, player.y, 9);
 
             // Print buffer
             frame.print();
